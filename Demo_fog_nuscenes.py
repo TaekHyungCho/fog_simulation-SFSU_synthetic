@@ -3,9 +3,11 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
 import json
-from source import gf
+#from source import gf
 import time
 from tqdm import tqdm
+import skimage.measure
+
 def transmission_homogeneoous_medium(depth_map,camera_parameter_files,beta):
     
     with open(camera_parameter_files) as json_file:
@@ -59,6 +61,11 @@ def  estimage_atmospheric_light_rf(I_dark,I,grayImg):
 
     return L
 
+def estimate_lodcal_light_rf(I_dark,kernel_size):
+    
+    I_ = skimage.measure.block_reduce(I_dark,(kernel_size,kernel_size),np.max)
+    return I_
+
 def haze_linear(clear_img,t,L):
     ch_ = L.shape[0]
     t = np.expand_dims(t,axis=-1)
@@ -72,16 +79,16 @@ def haze_linear(clear_img,t,L):
 
 if __name__ == '__main__':
     img_clear_list =[]
-    image_path = "/home/cth/Hyundai_/src/futr3d_thcchhoo/"
-    with open('/home/cth/Hyundai_/src/futr3d_thcchhoo/data/nuscenes/val_img.txt','r') as f:
+    image_path = "/data1/cth/nuscenes/"
+    with open('/data1/cth/nuscenes/val_img.txt','r') as f:
         lines = f.readlines()
         for line in lines:
             line = line.strip()
-            data_path = image_path + line
-            img_clear_list.append(data_path)
-    depth_path_list = ['data/nuscenes/depth/CAM_FRONT/','data/nuscenes/depth/CAM_FRONT_RIGHT/','data/nuscenes/depth/CAM_FRONT_LEFT/',
-                    'data/nuscenes/depth/CAM_BACK/','data/nuscenes/depth/CAM_BACK_LEFT/','data/nuscenes/depth/CAM_BACK_RIGHT/']
-    
+            #data_path = image_path + line
+            img_clear_list.append(line)
+    depth_path_list = ['depth/CAM_FRONT/','depth/CAM_FRONT_RIGHT/','depth/CAM_FRONT_LEFT/',
+                    'depth/CAM_BACK/','depth/CAM_BACK_LEFT/','depth/CAM_BACK_RIGHT/']
+    kernel_size = 25
     for img in tqdm(img_clear_list):
         file_name = str(img).split('/')[-1]
 
@@ -113,6 +120,7 @@ if __name__ == '__main__':
         depth_map_name = depth_path + file_name.replace("jpg","tif")
         #clear_image = np.array(cv2.imread(img),dtype=np.float64) #BGR format
         clear_image = cv2.imread(img)
+        cv2.imshow("test",clear_image)
         grayImg = cv2.cvtColor(clear_image,cv2.COLOR_BGR2GRAY)
         clear_image = np.array(clear_image,dtype=np.float64)/255
         grayImg = np.array(grayImg,dtype=np.float64)/255
@@ -120,18 +128,19 @@ if __name__ == '__main__':
         max_d = np.amax(depth_map)
         depth_map = (max_d - depth_map) * 255
 
-        result_root_path = "/home/cth/Hyundai_/src/futr3d_thcchhoo/"
-        result_foggy_path = "data/nuscenes/foggy/"
-        save_path = result_root_path+result_foggy_path + save_detail
+        #result_root_path = "/home/cth/Hyundai_/src/futr3d_thcchhoo/"
+        result_foggy_path = "/data1/cth/nuscenes/foggy/"
+        save_path = result_foggy_path + save_detail
 
         #Fog thickness
-        beta = 0.005
+        beta = 0.01
 
         t_initial = transmission_homogeneoous_medium(depth_map,camera_parameter_files,beta)
         #t_ = gf.guided_filter(clear_image,t_initial,r=41,eps=1e-3)
 
         clear_image_dark_channel = get_dark_channel(clear_image,window_size=15)
-        L_atm = estimage_atmospheric_light_rf(clear_image_dark_channel,clear_image,grayImg)
+        #L_atm = estimage_atmospheric_light_rf(clear_image_dark_channel,clear_image,grayImg)
+        L_atm = estimate_lodcal_light_rf(clear_image_dark_channel,kernel_size=kernel_size)
         foggy_image = haze_linear(clear_image,t_initial,L_atm)*255
         save_name = save_path + file_name
         cv2.imwrite(save_name,foggy_image)
