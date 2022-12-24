@@ -61,10 +61,12 @@ def  estimage_atmospheric_light_rf(I_dark,I,grayImg):
 
     return L
 
-def estimate_lodcal_light_rf(I_dark,kernel_size):
-    
+def estimate_local_light_rf(I_dark,kernel_size):
+    height, width = I_dark.shape[0], I_dark.shape[1]
     I_ = skimage.measure.block_reduce(I_dark,(kernel_size,kernel_size),np.max)
-    return I_
+    I_resized = cv2.resize(I_,(width,height))
+    I_filtered = cv2.GaussianBlur(I_resized,(0,0),9)
+    return I_filtered
 
 def haze_linear(clear_img,t,L):
     ch_ = L.shape[0]
@@ -74,7 +76,15 @@ def haze_linear(clear_img,t,L):
     img = t_replicated * clear_image + (1-t_replicated) * np.tile(L,t.shape)
     return img
 
-    
+def haze_linear2(clear_image,t,L):
+    t = np.expand_dims(t,axis=-1)
+    L = np.expand_dims(L,axis=-1)
+    t_replicated = np.tile(t,(1,1,3))
+    L_ = np.concatenate((L,L,L),axis=-1)
+    img = t_replicated * clear_image + (1-t_replicated) * L_
+    gamma = 1/1.2
+    img = np.power(img,gamma)
+    return img 
 
 
 if __name__ == '__main__':
@@ -120,27 +130,28 @@ if __name__ == '__main__':
         depth_map_name = depth_path + file_name.replace("jpg","tif")
         #clear_image = np.array(cv2.imread(img),dtype=np.float64) #BGR format
         clear_image = cv2.imread(img)
-        cv2.imshow("test",clear_image)
         grayImg = cv2.cvtColor(clear_image,cv2.COLOR_BGR2GRAY)
         clear_image = np.array(clear_image,dtype=np.float64)/255
         grayImg = np.array(grayImg,dtype=np.float64)/255
-        depth_map = np.array(Image.open(depth_map_name)) 
+        depth_map = np.array(Image.open(depth_map_name))
+        depth_map = (1-depth_map) 
         max_d = np.amax(depth_map)
-        depth_map = (max_d - depth_map) * 255
+        min_d = np.amin(depth_map)
+        depth_map = (depth_map - min_d) / (max_d - min_d) * 51.2
 
         #result_root_path = "/home/cth/Hyundai_/src/futr3d_thcchhoo/"
         result_foggy_path = "/data1/cth/nuscenes/foggy/"
         save_path = result_foggy_path + save_detail
-
+        #save_path = result_foggy_path 
         #Fog thickness
-        beta = 0.01
+        beta = 0.02
 
         t_initial = transmission_homogeneoous_medium(depth_map,camera_parameter_files,beta)
         #t_ = gf.guided_filter(clear_image,t_initial,r=41,eps=1e-3)
 
         clear_image_dark_channel = get_dark_channel(clear_image,window_size=15)
         #L_atm = estimage_atmospheric_light_rf(clear_image_dark_channel,clear_image,grayImg)
-        L_atm = estimate_lodcal_light_rf(clear_image_dark_channel,kernel_size=kernel_size)
+        L_atm = estimage_atmospheric_light_rf(clear_image_dark_channel,clear_image,grayImg)
         foggy_image = haze_linear(clear_image,t_initial,L_atm)*255
         save_name = save_path + file_name
         cv2.imwrite(save_name,foggy_image)
